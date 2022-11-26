@@ -37,7 +37,28 @@ transform=transforms.Compose([
             transforms.ToTensor(),
             normalize,
         ])
+CHOSEN_POINTS_COUNTER = 0
+CHOSEN_POINTS = np.zeros((2,2), np.int)
 
+
+def find_middle_pixel_on_height(lane_mask,height):
+    horizontal_lane=(lane_mask[height])
+    cnt0=0
+    cnt1=0
+    previous_pixel = 0
+    points_list=[]
+    for current_pixel in range(len(horizontal_lane)):
+        #print(current_pixel)
+        if horizontal_lane[previous_pixel]*horizontal_lane[current_pixel]==1:
+            cnt1=cnt1+1
+        elif horizontal_lane[previous_pixel]*horizontal_lane[current_pixel]==0 and cnt1!=0:
+            points_list.append((current_pixel-cnt1//2,height))
+            cnt1=0
+        elif horizontal_lane[current_pixel]==0:
+            cnt0=cnt0+1
+        previous_pixel = current_pixel
+
+    return points_list
 
 def detect(cfg,opt):
 
@@ -83,13 +104,18 @@ def detect(cfg,opt):
 
     inf_time = AverageMeter()
     nms_time = AverageMeter()
-    
+
+    #cv2.setMouseCallback('image', select_point)
+    #cv2.imshow('image', img)
+
     for i, (path, img, img_det, vid_cap,shapes) in tqdm(enumerate(dataset),total = len(dataset)):
 
         img = transform(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
+
+
         # Inference
         t1 = time_synchronized()
         det_out, da_seg_out,ll_seg_out= model(img)
@@ -117,31 +143,40 @@ def detect(cfg,opt):
         ratio = shapes[1][0][1]
 
         # DRIVING AREA PREDICT
-        da_predict = da_seg_out[:, :, pad_h:(height-pad_h),pad_w:(width-pad_w)]
-        da_seg_mask = torch.nn.functional.interpolate(da_predict, scale_factor=int(1/ratio), mode='bilinear')
-        _, da_seg_mask = torch.max(da_seg_mask, 1)
-        da_seg_mask = da_seg_mask.int().squeeze().cpu().numpy()
+        #da_predict = da_seg_out[:, :, pad_h:(height-pad_h),pad_w:(width-pad_w)]
+        #da_seg_mask = torch.nn.functional.interpolate(da_predict, scale_factor=int(1/ratio), mode='bilinear')
+        #_, da_seg_mask = torch.max(da_seg_mask, 1)
+        #da_seg_mask = da_seg_mask.int().squeeze().cpu().numpy()
         # da_seg_mask = morphological_process(da_seg_mask, kernel_size=7)
 
 
-        
+
         ll_predict = ll_seg_out[:, :,pad_h:(height-pad_h),pad_w:(width-pad_w)]
         ll_seg_mask = torch.nn.functional.interpolate(ll_predict, scale_factor=int(1/ratio), mode='bilinear')
         _, ll_seg_mask = torch.max(ll_seg_mask, 1)
         ll_seg_mask = ll_seg_mask.int().squeeze().cpu().numpy()
         # Lane line post-processing
-        ll_seg_mask = morphological_process(ll_seg_mask, kernel_size=7, func_type=cv2.MORPH_OPEN)
-        ll_seg_mask = connect_lane(ll_seg_mask)
-        color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
-        color_area[ll_seg_mask == 1] = [255, 0, 0]
 
+        #ll_seg_mask = process_lane_mask(ll_seg_mask)
+        #ll_seg_mask = morphological_process(ll_seg_mask, kernel_size=7, func_type=cv2.MORPH_OPEN)
+        #ll_seg_mask = connect_lane(ll_seg_mask)
+        #color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
+        #color_area[ll_seg_mask == 1] = [255, 0, 0]
+        points_density = 20
+        for i in range(points_density):
+            horizontal_line=ll_seg_mask.shape[0]-1-(i*ll_seg_mask.shape[0]//2//points_density)
+            cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,255],1)
+            points = find_middle_pixel_on_height(ll_seg_mask,horizontal_line)
+            for point in points:
+                cv2.circle(img_det, point, 2, [0,255,255],3)
+        #img_det = cv2.addWeighted(color_area, 0.5, img_det, 0.5, 0.0)
 
-        img_det = cv2.addWeighted(color_area, 0.5, img_det, 0.5, 0.0)
+        middle_middle=int(img_det.shape[1]/2), int(img_det.shape[0]/2)
+        middle_lower=(int(img_det.shape[1]/2), img_det.shape[0])
+        cv2.line(img_det, (middle_lower), (middle_middle), [10,20,30], 1)#linia srodkowa
 
-        img_det = img_det.astype(np.uint8)
-        img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
-        cv2.imshow("lanes",img_det)
-        cv2.waitKey(1)
+        # img_det = img_det.astype(np.uint8)
+        #img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
         #img_det = show_seg_result(img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True)
 
 
@@ -150,7 +185,7 @@ def detect(cfg,opt):
             for *xyxy,conf,cls in reversed(det):
                 label_det_pred = f'{names[int(cls)]} {conf:.2f}'
                 plot_one_box(xyxy, img_det , label=label_det_pred, color=colors[int(cls)], line_thickness=2)
-        
+
         if dataset.mode == 'images':
             cv2.imwrite(save_path,img_det)
 
@@ -165,10 +200,13 @@ def detect(cfg,opt):
                 h,w,_=img_det.shape
                 vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
             vid_writer.write(img_det)
-        
+
         else:
             cv2.imshow('image', img_det)
             cv2.waitKey(1)  # 1 millisecond
+
+        cv2.imshow("lanes", img_det)
+        cv2.waitKey(1)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -180,7 +218,7 @@ def detect(cfg,opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference/videos', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default='inference/vid2', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
