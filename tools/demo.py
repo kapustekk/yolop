@@ -17,6 +17,7 @@ import scipy.special
 import numpy as np
 import torchvision.transforms as transforms
 import PIL.Image as image
+from matplotlib import pyplot as plt
 
 from lib.config import cfg
 from lib.config import update_config
@@ -84,6 +85,7 @@ def detect(cfg,opt):
     nms_time = AverageMeter()
     
     for i, (path, img, img_det, vid_cap,shapes) in tqdm(enumerate(dataset),total = len(dataset)):
+
         img = transform(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         if img.ndimension() == 3:
@@ -114,11 +116,13 @@ def detect(cfg,opt):
         pad_h = int(pad_h)
         ratio = shapes[1][0][1]
 
+        # DRIVING AREA PREDICT
         da_predict = da_seg_out[:, :, pad_h:(height-pad_h),pad_w:(width-pad_w)]
         da_seg_mask = torch.nn.functional.interpolate(da_predict, scale_factor=int(1/ratio), mode='bilinear')
         _, da_seg_mask = torch.max(da_seg_mask, 1)
         da_seg_mask = da_seg_mask.int().squeeze().cpu().numpy()
         # da_seg_mask = morphological_process(da_seg_mask, kernel_size=7)
+
 
         
         ll_predict = ll_seg_out[:, :,pad_h:(height-pad_h),pad_w:(width-pad_w)]
@@ -126,10 +130,20 @@ def detect(cfg,opt):
         _, ll_seg_mask = torch.max(ll_seg_mask, 1)
         ll_seg_mask = ll_seg_mask.int().squeeze().cpu().numpy()
         # Lane line post-processing
-        #ll_seg_mask = morphological_process(ll_seg_mask, kernel_size=7, func_type=cv2.MORPH_OPEN)
-        #ll_seg_mask = connect_lane(ll_seg_mask)
+        ll_seg_mask = morphological_process(ll_seg_mask, kernel_size=7, func_type=cv2.MORPH_OPEN)
+        ll_seg_mask = connect_lane(ll_seg_mask)
+        color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
+        color_area[ll_seg_mask == 1] = [255, 0, 0]
 
-        img_det = show_seg_result(img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True)
+
+        img_det = cv2.addWeighted(color_area, 0.5, img_det, 0.5, 0.0)
+
+        img_det = img_det.astype(np.uint8)
+        img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
+        cv2.imshow("lanes",img_det)
+        cv2.waitKey(1)
+        #img_det = show_seg_result(img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True)
+
 
         if len(det):
             det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
@@ -170,7 +184,7 @@ if __name__ == '__main__':
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
-    parser.add_argument('--device', default='cpu', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--save-dir', type=str, default='inference/output', help='directory to save results')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
