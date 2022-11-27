@@ -184,12 +184,14 @@ def detect(cfg,opt):
         #ll_seg_mask = connect_lane(ll_seg_mask)
         #color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
         #color_area[ll_seg_mask == 1] = [255, 0, 0]
+
         points_list =[]
         left_lane_points = []
         right_lane_points = []
         left_left_lane_points = []
         right_right_lane_points = []
-        points_density = 20
+        points_density = 10
+
         for i in range(points_density):
             horizontal_line=ll_seg_mask.shape[0]-1-(i*ll_seg_mask.shape[0]//2//points_density)
             cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
@@ -200,20 +202,31 @@ def detect(cfg,opt):
                 cv2.circle(img_det, point, 2, [0,150,150],3)
             for point in right_lane_points:
                 points_list.append(point)
-                cv2.circle(img_det, point, 2, [0,255,0],4)
+                cv2.circle(img_det, point, 2, [0,255,0],3)
             for point in left_lane_points:
                 points_list.append(point)
                 cv2.circle(img_det, point, 2, [0,255,0],3)
-        #img_det = cv2.addWeighted(color_area, 0.5, img_det, 0.5, 0.0)
-        print(left_left_lane_points)
-        print(left_lane_points)
 
         middle_middle=int(img_det.shape[1]/2), int(img_det.shape[0]/2)
         middle_lower=(int(img_det.shape[1]/2), img_det.shape[0])
         cv2.line(img_det, (middle_lower), (middle_middle), [10,20,255], 1)#linia srodkowa
 
+        previous_element =[]
+        for element in right_lane_points:
+            if len(previous_element) != 0:
+                if abs(previous_element[0] - element[0]) < ll_seg_mask.shape[1]//5:
+                    cv2.line(img_det, previous_element, element, [242, 123, 52], 3)
+            previous_element = element
+        previous_element=[]
+
+        for element in left_lane_points:
+            if len(previous_element) != 0:
+                if abs(previous_element[0] - element[0]) < ll_seg_mask.shape[1]//5:
+                    cv2.line(img_det, previous_element, element, [242, 123, 52], 3)
+            previous_element = element
+
         # img_det = img_det.astype(np.uint8)
-        #img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
+        #img_det = cv2.resize(img_det, (640, 480), interpolation=cv2.INTER_LINEAR)
         #img_det = show_seg_result(img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True)
 
 
@@ -243,7 +256,7 @@ def detect(cfg,opt):
             cv2.waitKey(1)  # 1 millisecond
 
         cv2.imshow("lanes", img_det)
-        cv2.waitKey(0)
+        cv2.waitKey(1)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -255,7 +268,7 @@ def detect(cfg,opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default='inference/vid2', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
