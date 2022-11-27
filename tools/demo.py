@@ -197,7 +197,10 @@ def detect(cfg,opt):
             cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask,horizontal_line)
             left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points = separate_points(points,left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points, ll_seg_mask.shape[1]//2)
-            for point in points:
+            for point in left_left_lane_points:
+                points_list.append(point)
+                cv2.circle(img_det, point, 2, [0,150,150],3)
+            for point in right_right_lane_points:
                 points_list.append(point)
                 cv2.circle(img_det, point, 2, [0,150,150],3)
             for point in right_lane_points:
@@ -268,7 +271,7 @@ def detect(cfg,opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference/vid2', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default='inference/test1', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
