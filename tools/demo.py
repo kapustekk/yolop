@@ -37,9 +37,31 @@ transform=transforms.Compose([
             transforms.ToTensor(),
             normalize,
         ])
-CHOSEN_POINTS_COUNTER = 0
-CHOSEN_POINTS = np.zeros((2,2), np.int)
 
+
+def separate_points(points, left_left_lane_points,left_lane_points, right_lane_points, right_right_lane_points, img_middle):
+    left_distance_list = []
+    right_distance_list =[]
+    for point in points:
+        distance = point[0] - img_middle
+        if distance <0:
+            left_distance_list.append(abs(distance))
+        if distance >= 0:
+            right_distance_list.append(abs(distance))
+    if len(left_distance_list)>0:
+        min_left_idx = (left_distance_list.index((min(left_distance_list))))
+        left_lane_points.append(points[min_left_idx])
+        if len(left_distance_list)>1:
+            left_left_lane_points.append(points[min_left_idx-1])
+
+    if len(right_distance_list) > 0:
+        min_right_idx = (right_distance_list.index(min(right_distance_list)))
+        min_right_idx = min_right_idx + len(left_distance_list)
+        right_lane_points.append(points[min_right_idx])
+        if len(right_distance_list)>1:
+            right_right_lane_points.append(points[min_right_idx+1])
+
+    return left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points
 
 def find_middle_pixel_on_height(lane_mask,height):
     horizontal_lane=(lane_mask[height])
@@ -162,18 +184,33 @@ def detect(cfg,opt):
         #ll_seg_mask = connect_lane(ll_seg_mask)
         #color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
         #color_area[ll_seg_mask == 1] = [255, 0, 0]
+        points_list =[]
+        left_lane_points = []
+        right_lane_points = []
+        left_left_lane_points = []
+        right_right_lane_points = []
         points_density = 20
         for i in range(points_density):
             horizontal_line=ll_seg_mask.shape[0]-1-(i*ll_seg_mask.shape[0]//2//points_density)
-            cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,255],1)
+            cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask,horizontal_line)
+            left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points = separate_points(points,left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points, ll_seg_mask.shape[1]//2)
             for point in points:
-                cv2.circle(img_det, point, 2, [0,255,255],3)
+                points_list.append(point)
+                cv2.circle(img_det, point, 2, [0,150,150],3)
+            for point in right_lane_points:
+                points_list.append(point)
+                cv2.circle(img_det, point, 2, [0,255,0],4)
+            for point in left_lane_points:
+                points_list.append(point)
+                cv2.circle(img_det, point, 2, [0,255,0],3)
         #img_det = cv2.addWeighted(color_area, 0.5, img_det, 0.5, 0.0)
+        print(left_left_lane_points)
+        print(left_lane_points)
 
         middle_middle=int(img_det.shape[1]/2), int(img_det.shape[0]/2)
         middle_lower=(int(img_det.shape[1]/2), img_det.shape[0])
-        cv2.line(img_det, (middle_lower), (middle_middle), [10,20,30], 1)#linia srodkowa
+        cv2.line(img_det, (middle_lower), (middle_middle), [10,20,255], 1)#linia srodkowa
 
         # img_det = img_det.astype(np.uint8)
         #img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
@@ -206,7 +243,7 @@ def detect(cfg,opt):
             cv2.waitKey(1)  # 1 millisecond
 
         cv2.imshow("lanes", img_det)
-        cv2.waitKey(1)
+        cv2.waitKey(0)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -218,7 +255,7 @@ def detect(cfg,opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference/vid2', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
