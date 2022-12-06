@@ -4,6 +4,7 @@ import shutil
 import time
 from pathlib import Path
 import imageio
+from PointsChoosing import camera_calibration
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -38,6 +39,40 @@ transform=transforms.Compose([
             normalize,
         ])
 
+
+
+def warp_image_to_birdseye_view(image, calibration_points):
+    image_size = (image.shape[1],image.shape[0])
+    width = image.shape[0]
+    height = image.shape[1]
+    src, dst = get_warp_points(calibration_points,width,height)
+    # Get perspective transform
+    M = cv2.getPerspectiveTransform(src, dst)
+    # Warp perspective
+    warped = cv2.warpPerspective(image, M, image_size, flags=cv2.INTER_LINEAR)
+    # Get the destination perspective transform
+    Minv = cv2.getPerspectiveTransform(dst, src)
+
+    return warped, M, Minv
+
+
+def get_warp_points(calibration_points, width, height):
+    # Save corner values for source and destination partitions
+    corners = np.float32([calibration_points[0],calibration_points[1],calibration_points[2],calibration_points[3]])
+    print(corners)
+    # Save top left and right explicitly and offset
+    top_left = np.array([corners[3, 0], 0])
+    top_right = np.array([corners[2, 0], 0])
+    offset = [50, 0]
+    dst2=(int(corners[1][0]),int(corners[1][1]-50)) #50 pikseli to dlugosc pasa, czyli 50pikseli(y) - 5m
+    dst3=(int(corners[0][0]),int(corners[0][1]-50))
+    src_points = np.float32([corners[0], corners[1], corners[2], corners[3]])
+    dst_points = np.float32([corners[0],  corners[1], dst2,dst3])
+
+    # print(src_points)
+    # print(dst_points)
+
+    return src_points, dst_points
 
 def separate_points(points, left_left_lane_points,left_lane_points, right_lane_points, right_right_lane_points, img_middle):
     left_distance_list = []
@@ -82,7 +117,7 @@ def find_middle_pixel_on_height(lane_mask,height):
 
     return points_list
 
-def detect(cfg,opt):
+def detect(cfg,opt,calibration_points):
 
     logger, _, _ = create_logger(
         cfg, cfg.LOG_DIR, 'demo')
@@ -163,6 +198,9 @@ def detect(cfg,opt):
         pad_h = int(pad_h)
         ratio = shapes[1][0][1]
 
+        birds_img, M, Minv = warp_image_to_birdseye_view(img_det, calibration_points)
+        cv2.imshow("birdseye", birds_img)
+        cv2.waitKey(0)
         # DRIVING AREA PREDICT
         #da_predict = da_seg_out[:, :, pad_h:(height-pad_h),pad_w:(width-pad_w)]
         #da_seg_mask = torch.nn.functional.interpolate(da_predict, scale_factor=int(1/ratio), mode='bilinear')
@@ -189,10 +227,10 @@ def detect(cfg,opt):
         right_lane_points = []
         left_left_lane_points = []
         right_right_lane_points = []
-        points_density = 10
+        points_density = 20
 
         for i in range(points_density):
-            horizontal_line=ll_seg_mask.shape[0]-1-(i*ll_seg_mask.shape[0]//4//points_density)
+            horizontal_line=ll_seg_mask.shape[0]-1-(i*ll_seg_mask.shape[0]//2//points_density)
             cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask,horizontal_line)
             left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points = separate_points(points,left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points, ll_seg_mask.shape[1]//2)
@@ -234,7 +272,10 @@ def detect(cfg,opt):
             det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
             for *xyxy,conf,cls in reversed(det):
                 label_det_pred = f'{names[int(cls)]} {conf:.2f}'
-                plot_one_box(xyxy, img_det , label=label_det_pred, color=colors[int(cls)], line_thickness=2)
+                plot_one_box(xyxy, img_det , label=label_det_pred, color=[123,123,255], line_thickness=2)
+                bottom_y = int(xyxy[3])
+                mid_x = int((xyxy[0]+xyxy[2])/2)
+                cv2.circle(img_det, (mid_x,bottom_y), 2, [0,0,255],3)
 
         if dataset.mode == 'images':
             cv2.imwrite(save_path,img_det)
@@ -256,7 +297,7 @@ def detect(cfg,opt):
             cv2.waitKey(1)  # 1 millisecond
 
         cv2.imshow("lanes", img_det)
-        cv2.waitKey(1)
+        cv2.waitKey(0)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -266,16 +307,19 @@ def detect(cfg,opt):
 
 
 if __name__ == '__main__':
+    calibration_points = camera_calibration("inference/calibration/calibration.png")
+    print("DEMO!",calibration_points)
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
     parser.add_argument('--source', type=str, default='inference/test1', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
-    parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--device', default='cpu', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--save-dir', type=str, default='inference/output', help='directory to save results')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
     opt = parser.parse_args()
+
     with torch.no_grad():
-        detect(cfg,opt)
+        detect(cfg,opt,calibration_points)
