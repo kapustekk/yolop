@@ -205,7 +205,6 @@ def detect(cfg,opt,calibration_points):
         left_left_lane_points = []
         right_right_lane_points = []
         points_density = 20
-        previous_element = []
         bottom_horizon = calibration_points[4][1]
         upper_horizon = calibration_points[5][1] #gorny horyzont - pikselowo mniejsza wartość!
 
@@ -215,9 +214,11 @@ def detect(cfg,opt,calibration_points):
             cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask,horizontal_line)
             left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points = separate_points(points,left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points, ll_seg_mask.shape[1]//2)
+
             for point in left_left_lane_points:
                 points_list.append(point)
                 cv2.circle(img_det, point, 2, [0,150,150],3)
+            previous_element = []
             for point in left_lane_points:
                 if len(previous_element) != 0:
                     if abs(previous_element[0] - point[0]) < ll_seg_mask.shape[1] // 5:
@@ -226,7 +227,6 @@ def detect(cfg,opt,calibration_points):
                 points_list.append(point)
                 cv2.circle(img_det, point, 2, [0,255,0],3)
 
-            previous_element = []
             for point in right_right_lane_points:
                 points_list.append(point)
                 cv2.circle(img_det, point, 2, [0,150,150],3)
@@ -278,10 +278,10 @@ def detect(cfg,opt,calibration_points):
             cv2.waitKey(1)  # 1 millisecond
 
         cv2.imshow("lanes", img_det)
-        cv2.waitKey(0)
+        cv2.waitKey(1)
 
         cv2.imshow("birdseye", img_det_birdseye)
-        cv2.waitKey(0)
+        cv2.waitKey(1)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -291,11 +291,11 @@ def detect(cfg,opt,calibration_points):
 
 
 if __name__ == '__main__':
-    calibration_points = camera_calibration("inference/calibration/calibration.png", "inference/calibration/calibration.txt")
+    calibration_points = camera_calibration("inference/vid2/calibration.png", "inference/vid2/calibration.txt")
     print("DEMO!",calibration_points)
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference/single_image', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default='inference/vid2', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')

@@ -26,6 +26,23 @@ def click_event(event,x,y,flags,param):
         CHOSEN_POINTS_COUNTER = CHOSEN_POINTS_COUNTER + 1
         print(CHOSEN_POINTS)
 
+def write_instructions(CHOSEN_POINTS, CHOSEN_POINTS_COUNTER, image):
+    if(CHOSEN_POINTS_COUNTER==0):
+        text ="zaznacz lewy dolny rog pasow"
+    elif(CHOSEN_POINTS_COUNTER==1):
+        text ="zaznacz prawy dolny rog pasow"
+    elif (CHOSEN_POINTS_COUNTER == 2):
+        text ="zaznacz prawy gorny rog pasow"
+    elif (CHOSEN_POINTS_COUNTER == 3):
+        text = "zaznacz lewy gorny rog pasow"
+    elif (CHOSEN_POINTS_COUNTER == 4):
+        text = "zaznacz dolny horyzont"
+    elif (CHOSEN_POINTS_COUNTER == 5):
+        text = "zaznacz gorny horyzont"
+    for i in range(CHOSEN_POINTS_COUNTER):
+        cv2.circle(image, CHOSEN_POINTS[i], 2, [125, 246, 55], 5)
+    cv2.putText(image,text,[(image.shape[0]//2), image.shape[1]//2],cv2.FONT_HERSHEY_DUPLEX,1,[125, 246, 55],thickness=2)
+    return image
 def camera_calibration(imgpath,txtpath):
 
     global CHOSEN_POINTS_COUNTER
@@ -39,12 +56,15 @@ def camera_calibration(imgpath,txtpath):
                 CHOSEN_POINTS[CHOSEN_POINTS_COUNTER] = line
                 CHOSEN_POINTS_COUNTER=CHOSEN_POINTS_COUNTER+1
         return CHOSEN_POINTS
-    cImage = cv2.imread(imgpath)
+    image = cv2.imread(imgpath)
     print(CHOSEN_POINTS)
 
-    cv2.imshow("Camera calibrator", cImage)
+    cv2.imshow("Camera calibrator", image)
     cv2.setMouseCallback('Camera calibrator', click_event)
     while CHOSEN_POINTS_COUNTER < 6:
+        img_copy = image.copy()
+        img_copy = write_instructions(CHOSEN_POINTS, CHOSEN_POINTS_COUNTER, img_copy)
+        cv2.imshow("Camera calibrator", img_copy)
         cv2.waitKey(1)
 
     if CHOSEN_POINTS_COUNTER ==6:
