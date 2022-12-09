@@ -221,7 +221,7 @@ def appending_list_if_found_or_not(side_points_list, previous_lines_list):
     return previous_lines_list
 
 
-def detect(cfg,opt):
+def detect(cfg,opt,calibration_points):
 
     logger, _, _ = create_logger(
         cfg, cfg.LOG_DIR, 'demo')
@@ -317,6 +317,7 @@ def detect(cfg,opt):
         ll_seg_mask = torch.nn.functional.interpolate(ll_predict, scale_factor=int(1/ratio), mode='bilinear')
         _, ll_seg_mask = torch.max(ll_seg_mask, 1)
         ll_seg_mask = ll_seg_mask.int().squeeze().cpu().numpy()
+        ll_seg_mask = np.uint8(ll_seg_mask)
         # Lane line post-processing
 
         #ll_seg_mask = process_lane_mask(ll_seg_mask)
@@ -324,6 +325,26 @@ def detect(cfg,opt):
         #ll_seg_mask = connect_lane(ll_seg_mask)
         #color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
         #color_area[ll_seg_mask == 1] = [255, 0, 0]
+
+
+        img_det_copy = img_det.copy()
+        birds_img, M, Minv = warp_image_to_birdseye_view(img_det_copy, calibration_points)
+        birds_ll_seg_img, M_ll_seg, Minv_ll_seg = warp_image_to_birdseye_view(ll_seg_mask, calibration_points)
+        img_det_birdseye=cv2.bitwise_and(birds_img,birds_img, mask=birds_ll_seg_img)
+
+
+        optic_middle_bottom, optic_middle_upper = find_optic_middle(calibration_points)
+        optic_middle_bottom_warp = warp_point(optic_middle_bottom,M)
+        optic_middle_upper_warp = warp_point(optic_middle_upper,M)
+        cv2.line(img_det, optic_middle_bottom, optic_middle_upper, [255, 150, 150], 3)
+        cv2.line(img_det_birdseye, optic_middle_bottom_warp, optic_middle_upper_warp, [255,150,150], 3)
+
+
+
+        bottom_horizon = calibration_points[4]
+        upper_horizon = calibration_points[5] #gorny horyzont - pikselowo mniejsza wartość!
+        upper_horizon_warped = warp_point(upper_horizon,M)
+        bottom_horizon_warped = warp_point(bottom_horizon,M)
 
         points_list = []
         left_lane_points = []
@@ -336,7 +357,9 @@ def detect(cfg,opt):
         last_points = []
 
         for i in range(points_density):
-            horizontal_line = ll_seg_mask.shape[0]-1-(i*ll_seg_mask.shape[0]//2//points_density)
+            D = bottom_horizon[1] - upper_horizon[1]
+            horizontal_line = bottom_horizon[1] - (i * D // points_density)
+            #horizontal_line = ll_seg_mask.shape[0]-1-(i*ll_seg_mask.shape[0]//2//points_density)
             # cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask, horizontal_line)
             if i <= first_phase:
@@ -378,7 +401,10 @@ def detect(cfg,opt):
             det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
             for *xyxy,conf,cls in reversed(det):
                 label_det_pred = f'{names[int(cls)]} {conf:.2f}'
-                plot_one_box(xyxy, img_det , label=label_det_pred, color=colors[int(cls)], line_thickness=2)
+                plot_one_box(xyxy, img_det , label=label_det_pred, color=[123,123,255], line_thickness=2)
+                bottom_y = int(xyxy[3])
+                mid_x = int((xyxy[0]+xyxy[2])/2)
+                cv2.circle(img_det, (mid_x,bottom_y), 2, [0,0,255],3)
 
         if dataset.mode == 'images':
             cv2.imwrite(save_path, img_det)
@@ -407,6 +433,8 @@ def detect(cfg,opt):
         # out = cv2.resize(img_det, (width_resolution, height_resolution))
         cv2.imshow("lanes", img_det)
         cv2.waitKey(1)
+        cv2.imshow("birdseye", img_det_birdseye)
+        cv2.waitKey(1)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -416,11 +444,13 @@ def detect(cfg,opt):
 
 
 if __name__ == '__main__':
+    calibration_points = camera_calibration("inference/test1/calibration.png", "inference/test1/calibration.txt")
+    print("DEMO!",calibration_points)
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default='inference/test1', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.8, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
     parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--save-dir', type=str, default='inference/output', help='directory to save results')
@@ -428,4 +458,4 @@ if __name__ == '__main__':
     parser.add_argument('--update', action='store_true', help='update all models')
     opt = parser.parse_args()
     with torch.no_grad():
-        detect(cfg,opt)
+        detect(cfg,opt,calibration_points)

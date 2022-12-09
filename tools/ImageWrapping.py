@@ -30,7 +30,7 @@ def get_warp_points(calibration_points, width, height):
     # Save top left and right explicitly and offset
     offset = [50, 0]
     dst_height = 5*int(height/60) #height/60 to 1m dla 720p: 12pikseli - 1m
-    dst_width = 2.5*int(height/60)
+    dst_width = 2.5*int(height/15) #height/15 to 1 m, dla 720p 3piksele - 1m
     dst0 = corners[0]
     dst1=(int(corners[0][0]+dst_width),int(corners[1][1]))
     dst2=(int(corners[0][0]+dst_width),int(corners[1][1]-dst_height))
