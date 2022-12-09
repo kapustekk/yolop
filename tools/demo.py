@@ -205,12 +205,16 @@ def detect(cfg,opt,calibration_points):
         left_left_lane_points = []
         right_right_lane_points = []
         points_density = 20
-        bottom_horizon = calibration_points[4][1]
-        upper_horizon = calibration_points[5][1] #gorny horyzont - pikselowo mniejsza wartość!
-
+        bottom_horizon = calibration_points[4]
+        upper_horizon = calibration_points[5] #gorny horyzont - pikselowo mniejsza wartość!
+        upper_horizon_warped = warp_point(upper_horizon,M)
+        bottom_horizon_warped = warp_point(bottom_horizon,M)
+        print(upper_horizon_warped)
+        cv2.circle(img_det_birdseye,bottom_horizon_warped, 2, [0,255,0],3)
+        cv2.circle(img_det_birdseye,upper_horizon_warped, 2, [0,255,0],3)
         for i in range(points_density):
-            D = bottom_horizon-upper_horizon
-            horizontal_line=bottom_horizon-(i*D//points_density)
+            D = bottom_horizon[1]-upper_horizon[1]
+            horizontal_line=bottom_horizon[1]-(i*D//points_density)
             cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask,horizontal_line)
             left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points = separate_points(points,left_left_lane_points,left_lane_points,right_lane_points,right_right_lane_points, ll_seg_mask.shape[1]//2)
