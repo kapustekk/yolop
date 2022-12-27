@@ -10,9 +10,9 @@ def display_lines(image, lines):
             cv2.line(line_image, (x1,y1), (x2,y2), (0, 0, 255), 3)
     return line_image
 
-def oblicz_wspolczynniki(line):
-    print(np.shape(line))
-    x1, y1, x2, y2 = line.reshape(4)
+def oblicz_wspolczynniki(point1,point2):
+    x1, y1=point1
+    x2, y2=point2
     b = ((x2 * y1 - x1 * y2) / (x2 - x1))
     a = (y2 - b) / x2
     fi = math.atan(a) * 180 / math.pi

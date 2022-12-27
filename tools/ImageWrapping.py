@@ -1,27 +1,30 @@
 import numpy as np
 import cv2
 
+
 def warp_point(point, M):
-    x=point[0]
-    y=point[1]
+    x = point[0]
+    y = point[1]
     d = M[2, 0] * x + M[2, 1] * y + M[2, 2]
     xM = int((M[0, 0] * x + M[0, 1] * y + M[0, 2]) / d)
     yM = int((M[1, 0] * x + M[1, 1] * y + M[1, 2]) / d)
-    return [xM,yM]
+    return [xM, yM]
 
-def warp_image_to_birdseye_view(image, calibration_points):
-    image_size = (image.shape[1],image.shape[0])
-    width = image.shape[0]
-    height = image.shape[1]
-    src, dst = get_warp_points(calibration_points,width,height)
-    # Get perspective transform
+
+def get_warp_perspective(calibration_points, img_size):
+    src, dst = get_warp_points(calibration_points, img_size[0], img_size[1])
     M = cv2.getPerspectiveTransform(src, dst)
-    # Warp perspective
-    warped = cv2.warpPerspective(image, M, image_size, flags=cv2.INTER_LINEAR)
-    # Get the destination perspective transform
     Minv = cv2.getPerspectiveTransform(dst, src)
 
-    return warped, M, Minv
+    return M, Minv
+
+
+def warp_image_to_birdseye_view(image, M):
+    height = image.shape[0]
+    width = image.shape[1]
+    warped_image = cv2.warpPerspective(image, M, (height, width), flags=cv2.INTER_LINEAR)
+
+    return warped_image
 
 
 def get_warp_points(calibration_points, width, height):
@@ -30,7 +33,7 @@ def get_warp_points(calibration_points, width, height):
     # Save top left and right explicitly and offset
     offset = [50, 0]
     dst_height = 5*int(height/60) #height/60 to 1m dla 720p: 12pikseli - 1m
-    dst_width = 2.5*int(height/15) #height/15 to 1 m, dla 720p 3piksele - 1m
+    dst_width = 2.5*int(height/15)
     dst0 = corners[0]
     dst1=(int(corners[0][0]+dst_width),int(corners[1][1]))
     dst2=(int(corners[0][0]+dst_width),int(corners[1][1]-dst_height))
