@@ -15,7 +15,8 @@ import torchvision.transforms as transforms
 import PIL.Image as image
 from matplotlib import pyplot as plt
 from tools.PointsChoosing import camera_calibration, find_optic_middle
-from tools.ImageWrapping import warp_image_to_birdseye_view, warp_point, get_warp_perspective
+from tools.ImageWrapping import warp_image_to_birdseye_view, warp_point, get_warp_perspective, calculate_distance_between_points, estimate_real_distance
+from tools.canny_lanes import get_hough_lanes, display_hough_lines
 
 from lib.config import cfg
 from lib.config import update_config
@@ -298,14 +299,18 @@ def detect(cfg,opt,calibration_points):
     global width_threshold
     width_threshold = width // 50
 
-    # M, Minv = get_warp_perspective(calibration_points, (height, width))
+    y_conv = int(height / 60)  # height/60 to 1m dla 720p: 12pikseli po y = 1m
+    x_conv = int(height / 15)  # height/15 to 1 m, dla 720p 3piksele po x = 1m
+    M, Minv = get_warp_perspective(calibration_points, (height, width),x_conv,y_conv)
     # print(type(img_det[0][0][0]))
 
     optic_middle_bottom, optic_middle_upper = find_optic_middle(calibration_points)
+    optic_middle=(((optic_middle_bottom[0]+optic_middle_upper[0])//2),((optic_middle_bottom[1]+optic_middle_upper[1])//2))
     # optic_middle_upper_warp = warp_point(optic_middle_upper, M)
     bottom_horizon = calibration_points[4]
     upper_horizon = calibration_points[5]  # gorny horyzont - pikselowo mniejsza wartość!
     D = bottom_horizon[1] - upper_horizon[1]
+    vehilce_front = (optic_middle[0],bottom_horizon[1])
 
     set_of_lines_right = []
     set_of_lines_left = []
@@ -362,17 +367,25 @@ def detect(cfg,opt,calibration_points):
         #ll_seg_mask = process_lane_mask(ll_seg_mask)
         #ll_seg_mask = morphological_process(ll_seg_mask, kernel_size=7, func_type=cv2.MORPH_OPEN)
         #ll_seg_mask = connect_lane(ll_seg_mask)
-        #color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
-        #color_area[ll_seg_mask == 1] = [255, 0, 0]
+        # color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
+        # color_area[ll_seg_mask == 1] = [255, 0, 0]
 
         # ############################################################TOMEK#############################################
-        # img_det_copy = img_det.copy()
-        # birds_img = warp_image_to_birdseye_view(img_det_copy, M)
+        birds_img_with_mask = img_det.copy()
+        #birds_img_with_mask[ll_seg_mask == 0]=[0,0,0]#nalozenie maski
+        #birds_img_with_mask = warp_image_to_birdseye_view(birds_img_with_mask, M)#warp
+        hough_lines = get_hough_lanes(birds_img_with_mask)
+        birds_img_with_mask=display_hough_lines(birds_img_with_mask,hough_lines)
+
+        cv2.imshow("birds_img_with_mask",birds_img_with_mask)
+        cv2.waitKey(1)
+
+        birds_img = img_det.copy()
+        birds_img = warp_image_to_birdseye_view(birds_img, M)  # warp
         # birds_ll_seg_mask = warp_image_to_birdseye_view(ll_seg_mask, M)
         # print(birds_img.shape,' + ', birds_ll_seg_mask.shape)
         # img_det_birdseye = cv2.bitwise_and(birds_img, birds_img, mask=birds_ll_seg_mask)
-
-        cv2.circle(img_det, optic_middle_upper, 2, [0, 0, 255], 5)
+        cv2.circle(img_det, optic_middle, 2, [0, 0, 255], 5)
 
         # upper_horizon_warped = warp_point(upper_horizon, M) # do wyszukiwania linii na birds_eye
         # bottom_horizon_warped = warp_point(bottom_horizon, M)
@@ -390,7 +403,9 @@ def detect(cfg,opt,calibration_points):
             # cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask, horizontal_line)
             if i <= first_phase:
-                left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points = separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,ll_seg_mask.shape[1]//2)
+                left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points =\
+                    separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,
+                                    optic_middle[0])
                 left_lane_points = deleting_far_points_from_list(left_lane_points)
                 right_lane_points = deleting_far_points_from_list(right_lane_points)
 
@@ -443,7 +458,7 @@ def detect(cfg,opt,calibration_points):
         # img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
         # img_det = show_seg_result(img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True)
 
-
+        found_cars_points = []
         if len(det):
             det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
             for *xyxy,conf,cls in reversed(det):
@@ -452,7 +467,20 @@ def detect(cfg,opt,calibration_points):
                 bottom_y = int(xyxy[3])
                 mid_x = int((xyxy[0]+xyxy[2])/2)
                 cv2.circle(img_det, (mid_x,bottom_y), 2, [0,0,255],3)
+                found_cars_points.append((mid_x,bottom_y))
 
+        for point in found_cars_points:
+            cv2.circle(birds_img, warp_point(point, M), 2, [0, 0, 255], 5)
+            px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehilce_front,M))
+            real_dist = estimate_real_distance(px_distance,x_conv,y_conv)
+            diagonal_distnace = math.sqrt((real_dist[0]**2)+(real_dist[1]**2))
+            print(diagonal_distnace)
+            cv2.putText(birds_img, str(round(diagonal_distnace,1)), warp_point(point, M), cv2.FONT_HERSHEY_DUPLEX, 1,
+                        [125, 246, 55], thickness=2)
+
+        cv2.circle(birds_img, warp_point(vehilce_front,M), 2, [0, 0, 255], 5)
+        cv2.imshow("img",birds_img)
+        cv2.waitKey(1)
         if dataset.mode == 'images':
             cv2.imwrite(save_path, img_det)
 
@@ -488,10 +516,10 @@ def detect(cfg,opt,calibration_points):
 
 
 if __name__ == '__main__':
-    calibration_points = camera_calibration("inference/test1/calibration.png", "inference/test1/calibration.txt")
+    calibration_points = camera_calibration("inference/vid2/calibration.png", "inference/vid2/calibration.txt")
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default='inference/vid2', help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.8, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
