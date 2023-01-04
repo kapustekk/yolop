@@ -4,7 +4,7 @@ import os.path
 from numpy import genfromtxt
 
 CHOSEN_POINTS_COUNTER = 0
-CHOSEN_POINTS = np.zeros((8,2), np.int)
+CHOSEN_POINTS = np.zeros((7,2), np.int)
 
 
 def find_optic_middle(CHOSEN_POINTS):
@@ -21,7 +21,6 @@ def click_event(event,x,y,flags,param):
     global CHOSEN_POINTS
 
     if event == cv2.EVENT_LBUTTONDOWN: # captures left button double-click
-
         CHOSEN_POINTS[CHOSEN_POINTS_COUNTER] = x, y
         CHOSEN_POINTS_COUNTER = CHOSEN_POINTS_COUNTER + 1
         print(CHOSEN_POINTS)
@@ -39,12 +38,6 @@ def write_instructions(CHOSEN_POINTS, CHOSEN_POINTS_COUNTER, image):
         text = "zaznacz dolny horyzont"
     elif (CHOSEN_POINTS_COUNTER == 5):
         text = "zaznacz gorny horyzont"
-    elif (CHOSEN_POINTS_COUNTER == 6):
-        text = "na podanej wysokosci zaznacz lewy pas"
-        cv2.line(image,(0,CHOSEN_POINTS[2][1]),(image.shape[1],CHOSEN_POINTS[2][1]),[255, 150, 150], 3)
-    elif (CHOSEN_POINTS_COUNTER == 7):
-        text = "na podanej wysokosci zaznacz prawy pas"
-        cv2.line(image,(0,CHOSEN_POINTS[2][1]),(image.shape[1],CHOSEN_POINTS[2][1]),[255, 150, 150], 3)
     for i in range(CHOSEN_POINTS_COUNTER):
         cv2.circle(image, CHOSEN_POINTS[i], 2, [125, 246, 55], 5)
     cv2.putText(image,text,[(image.shape[0]//2), image.shape[1]//2],cv2.FONT_HERSHEY_DUPLEX,1,[125, 246, 55],thickness=2)
@@ -67,16 +60,19 @@ def camera_calibration(imgpath,txtpath):
 
     cv2.imshow("Camera calibrator", image)
     cv2.setMouseCallback('Camera calibrator', click_event)
-    while CHOSEN_POINTS_COUNTER < 8:
+    while CHOSEN_POINTS_COUNTER < 6:
         img_copy = image.copy()
         img_copy = write_instructions(CHOSEN_POINTS, CHOSEN_POINTS_COUNTER, img_copy)
         cv2.imshow("Camera calibrator", img_copy)
         cv2.waitKey(1)
 
-    if CHOSEN_POINTS_COUNTER ==6:
+    if CHOSEN_POINTS_COUNTER == 6:
         cv2.destroyAllWindows()
+        number_of_segments = input("podaj ilosc zaznaczonych segmentow: ")
+        CHOSEN_POINTS[CHOSEN_POINTS_COUNTER] = (number_of_segments,0)
+        CHOSEN_POINTS_COUNTER = CHOSEN_POINTS_COUNTER + 1
         for i in range(len(CHOSEN_POINTS)):
-            print(i)
+            #print(i)
             with open(txtpath, 'a') as f:
                 f.write(str(CHOSEN_POINTS[i][0])+","+str(CHOSEN_POINTS[i][1]))
                 f.write("\n")

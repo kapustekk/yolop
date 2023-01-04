@@ -11,8 +11,8 @@ def warp_point(point, M):
     return [xM, yM]
 
 
-def get_warp_perspective(calibration_points, img_size,x_conv,y_conv):
-    src, dst = get_warp_points(calibration_points, img_size[0], img_size[1],x_conv,y_conv)
+def get_warp_perspective(calibration_points, x_conv,y_conv,number_of_segments):
+    src, dst = get_warp_points(calibration_points, x_conv,y_conv,number_of_segments)
     M = cv2.getPerspectiveTransform(src, dst)
     Minv = cv2.getPerspectiveTransform(dst, src)
 
@@ -27,10 +27,10 @@ def warp_image_to_birdseye_view(image, M):
     return warped_image
 
 def calculate_distance_between_points(point1, point2):
-    x1 = abs(point1[0])
-    y1 = abs(point1[1])
-    x2=abs(point2[0])
-    y2=abs(point2[1])
+    x1 =(point1[0])
+    y1 =(point1[1])
+    x2=(point2[0])
+    y2=(point2[1])
     x_dist = abs(x1-x2)
     y_dist = abs(y1-y2)
 
@@ -43,13 +43,11 @@ def estimate_real_distance(distance,x_conv,y_conv):
     real_distance_x = x_pix/x_conv#dystans w metrach
     real_distance_y = y_pix/y_conv
     return (real_distance_x,real_distance_y)
-def get_warp_points(calibration_points, width, height,x_conv,y_conv):
+def get_warp_points(calibration_points,x_conv,y_conv,number_of_segments):
     # Save corner values for source and destination partitions
     corners = np.float32([calibration_points[0],calibration_points[1],calibration_points[2],calibration_points[3]])
-    # Save top left and right explicitly and offset
-    offset = [50, 0]
     dst_height = 5*y_conv #height/60 to 1m dla 720p: 12pikseli - 1m
-    dst_width = 2.5*x_conv
+    dst_width = number_of_segments*0.5*x_conv
     dst0 = corners[0]
     dst1=(int(corners[0][0]+dst_width),int(corners[1][1]))
     dst2=(int(corners[0][0]+dst_width),int(corners[1][1]-dst_height))

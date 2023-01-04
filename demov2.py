@@ -49,6 +49,42 @@ transform = transforms.Compose([
             normalize,
         ])
 
+def estimate_speed_towards_car(unique_cars, vehicle_front, x_conv,y_conv, fps=30):
+    time_between_points = 1/fps
+    unique_cars_speed = []
+    for car in unique_cars:
+        speed_sum = 0
+        previous_distance = 0
+        distance_list=[]
+        for point in car:
+            px_dist = calculate_distance_between_points(point,vehicle_front)
+            real_dist = estimate_real_distance(px_dist,x_conv,y_conv)
+            diagonal_distnace = math.sqrt((real_dist[0]**2)+(real_dist[1]**2))
+            distance_list.append(diagonal_distnace)
+        for distance in distance_list:
+            if previous_distance !=0:
+                distance_in_time = previous_distance-distance
+                real_speed = distance_in_time/time_between_points
+                speed_sum = speed_sum + real_speed
+            previous_distance = distance
+        avg_speed = speed_sum/(len(distance_list)-1)
+        unique_cars_speed.append(avg_speed)
+    return unique_cars_speed
+def label_cars(set_of_found_cars, height):
+    unique_cars = []
+    if len(set_of_found_cars)>5:
+        first_set = set_of_found_cars[-6]
+        for car_point in first_set:
+            unique_car = []
+            unique_car.append(car_point)
+            for set in set_of_found_cars[-5:-1]:
+                for car2 in set:
+                    if abs(car2[0]-car_point[0])<height//30 and abs(car2[0]-car_point[0])<height//30:#zblizanie sie po y do 216km/h
+                        unique_car.append(car2)
+                        car_point = car2
+                if len(unique_car)==5:
+                    unique_cars.append(unique_car)
+    return unique_cars
 
 def separate_points(points, left_left_lane_points,left_lane_points, right_lane_points, right_right_lane_points, img_middle):
     left_distance_list = []
@@ -299,21 +335,30 @@ def detect(cfg,opt,calibration_points):
     global width_threshold
     width_threshold = width // 50
 
-    y_conv = int(height / 60)  # height/60 to 1m dla 720p: 12pikseli po y = 1m
-    x_conv = int(height / 15)  # height/15 to 1 m, dla 720p 3piksele po x = 1m
-    M, Minv = get_warp_perspective(calibration_points, (height, width),x_conv,y_conv)
     # print(type(img_det[0][0][0]))
+    if calibration_points is not None:
+        bottom_horizon = calibration_points[4]
+        upper_horizon = calibration_points[5]  # gorny horyzont - pikselowo mniejsza wartość!
+        D = bottom_horizon[1] - upper_horizon[1]
+        optic_middle_bottom, optic_middle_upper = find_optic_middle(calibration_points)
+        optic_middle=(((optic_middle_bottom[0]+optic_middle_upper[0])//2),((optic_middle_bottom[1]+optic_middle_upper[1])//2))
+        vehicle_front = (optic_middle[0],bottom_horizon[1])
+        img_middle = optic_middle[0]
+        number_of_segments = calibration_points[6][0]
 
-    optic_middle_bottom, optic_middle_upper = find_optic_middle(calibration_points)
-    optic_middle=(((optic_middle_bottom[0]+optic_middle_upper[0])//2),((optic_middle_bottom[1]+optic_middle_upper[1])//2))
-    # optic_middle_upper_warp = warp_point(optic_middle_upper, M)
-    bottom_horizon = calibration_points[4]
-    upper_horizon = calibration_points[5]  # gorny horyzont - pikselowo mniejsza wartość!
-    D = bottom_horizon[1] - upper_horizon[1]
-    vehilce_front = (optic_middle[0],bottom_horizon[1])
+        y_conv = int(height / 60)  # height/60 to 1m dla 720p: 12pikseli po y = 1m
+        x_conv = int(height / 15)  # height/15 to 1 m, dla 720p 3piksele po x = 1m
+        M, Minv = get_warp_perspective(calibration_points, x_conv, y_conv,number_of_segments)
+        # optic_middle_upper_warp = warp_point(optic_middle_upper, M)
+    else:
+        img_middle = width//2
+        bottom_horizon = height
+        upper_horizon = height//2  # gorny horyzont - pikselowo mniejsza wartość!
+
 
     set_of_lines_right = []
     set_of_lines_left = []
+    set_of_found_cars = []
 
     for i, (path, img, img_det, vid_cap, shapes) in tqdm(enumerate(dataset),total = len(dataset)):
 
@@ -404,8 +449,8 @@ def detect(cfg,opt,calibration_points):
             points = find_middle_pixel_on_height(ll_seg_mask, horizontal_line)
             if i <= first_phase:
                 left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points =\
-                    separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,
-                                    optic_middle[0])
+                    separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,img_middle)
+
                 left_lane_points = deleting_far_points_from_list(left_lane_points)
                 right_lane_points = deleting_far_points_from_list(right_lane_points)
 
@@ -459,6 +504,7 @@ def detect(cfg,opt,calibration_points):
         # img_det = show_seg_result(img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True)
 
         found_cars_points = []
+        xyxy_list = []
         if len(det):
             det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
             for *xyxy,conf,cls in reversed(det):
@@ -466,19 +512,35 @@ def detect(cfg,opt,calibration_points):
                 plot_one_box(xyxy, img_det , label=label_det_pred, color=[123,123,255], line_thickness=2)
                 bottom_y = int(xyxy[3])
                 mid_x = int((xyxy[0]+xyxy[2])/2)
-                cv2.circle(img_det, (mid_x,bottom_y), 2, [0,0,255],3)
-                found_cars_points.append((mid_x,bottom_y))
-
+                bottom_middle_point = (mid_x,bottom_y)
+                cv2.circle(img_det, bottom_middle_point, 2, [0,0,255],3)
+                found_cars_points.append(bottom_middle_point)
+                #print(xyxy)
+                xyxy_list.append([warp_point((xyxy[0],bottom_y),M),warp_point((xyxy[2],bottom_y),M)])
+        # odleglosc od samochodu
+        set_of_found_cars.append(found_cars_points)
+        unique_cars = label_cars(set_of_found_cars,height)
+        print(unique_cars)
+        avg_speed_list = estimate_speed_towards_car(unique_cars, vehicle_front, x_conv,y_conv)
+        print(avg_speed_list)
+        for i in range(len(unique_cars)):
+            cv2.putText(img_det, str(round(avg_speed_list[i]*3.6, 1))+"km/h", unique_cars[i][0], cv2.FONT_HERSHEY_DUPLEX,
+                    1, [125, 246, 55], thickness=1)
+        #print(found_cars_points)
         for point in found_cars_points:
             cv2.circle(birds_img, warp_point(point, M), 2, [0, 0, 255], 5)
-            px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehilce_front,M))
+            px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehicle_front,M))
             real_dist = estimate_real_distance(px_distance,x_conv,y_conv)
             diagonal_distnace = math.sqrt((real_dist[0]**2)+(real_dist[1]**2))
-            print(diagonal_distnace)
-            cv2.putText(birds_img, str(round(diagonal_distnace,1)), warp_point(point, M), cv2.FONT_HERSHEY_DUPLEX, 1,
-                        [125, 246, 55], thickness=2)
+            #cv2.putText(img_det, str(round(diagonal_distnace,1)), point, cv2.FONT_HERSHEY_DUPLEX,
+            #            1,[125, 246, 55], thickness=1)
+            #cv2.putText(img_det, str((round(real_dist[0], 1), round(real_dist[1], 1))), point, cv2.FONT_HERSHEY_DUPLEX,
+            #            1,[125, 246, 55], thickness=1)
+            #print(diagonal_distnace)
+            #cv2.putText(birds_img, str(round(diagonal_distnace,1)), warp_point(point, M), cv2.FONT_HERSHEY_DUPLEX, 1,
+            #            [125, 246, 55], thickness=2)
 
-        cv2.circle(birds_img, warp_point(vehilce_front,M), 2, [0, 0, 255], 5)
+        cv2.circle(birds_img, warp_point(vehicle_front,M), 2, [0, 0, 255], 5)
         cv2.imshow("img",birds_img)
         cv2.waitKey(1)
         if dataset.mode == 'images':
