@@ -31,8 +31,8 @@ def calculate_distance_between_points(point1, point2):
     y1 =(point1[1])
     x2=(point2[0])
     y2=(point2[1])
-    x_dist = abs(x1-x2)
-    y_dist = abs(y1-y2)
+    x_dist = x2-x1
+    y_dist = y2-y1
 
     return (x_dist,y_dist)
 
@@ -46,7 +46,7 @@ def estimate_real_distance(distance,x_conv,y_conv):
 def get_warp_points(calibration_points,x_conv,y_conv,number_of_segments):
     # Save corner values for source and destination partitions
     corners = np.float32([calibration_points[0],calibration_points[1],calibration_points[2],calibration_points[3]])
-    dst_height = 5*y_conv #height/60 to 1m dla 720p: 12pikseli - 1m
+    dst_height = 4*y_conv #height/60 to 1m dla 720p: 12pikseli - 1m
     dst_width = number_of_segments*0.5*x_conv
     dst0 = corners[0]
     dst1=(int(corners[0][0]+dst_width),int(corners[1][1]))

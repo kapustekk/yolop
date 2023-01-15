@@ -16,7 +16,6 @@ import PIL.Image as image
 from matplotlib import pyplot as plt
 from tools.PointsChoosing import camera_calibration, find_optic_middle
 from tools.ImageWrapping import warp_image_to_birdseye_view, warp_point, get_warp_perspective, calculate_distance_between_points, estimate_real_distance
-from tools.canny_lanes import get_hough_lanes, display_hough_lines
 
 from lib.config import cfg
 from lib.config import update_config
@@ -34,8 +33,7 @@ sys.path.append(BASE_DIR)
 
 print(sys.path)
 
-threshold = 40
-# width_threshold = 20
+divide = 40
 points_density = 20  # dobre 20/40
 first_phase = points_density//3
 second_phase = first_phase+1
@@ -62,47 +60,6 @@ def average_points(unique_cars):
         unique_cars_average.append((avg_x1,avg_y1))
     return unique_cars_average
 
-
-def estimate_speed_towards_car(unique_cars, vehicle_front, x_conv,y_conv, M, fps=30):
-    vehicle_front = warp_point(vehicle_front,M)
-    time_between_points = 1/fps
-    unique_cars_speed = []
-    for car in unique_cars:
-        distance_sum = 0
-        previous_distance = 0
-        distance_list=[]
-        sum_y1=0
-        sum_y2=0
-        sum_x1=0
-        sum_x2=0
-        points1 = car[:len(car)//2]
-        points2=car[(1+len(car)//2):]
-        for point in points1:
-             sum_y1 = sum_y1+point[1]
-             sum_x1 = sum_x1+point[0]
-        for point in points2:
-             sum_y2 = sum_y2+point[1]
-             sum_x2 = sum_x2+point[0]
-        avg_y1 = sum_y1/len(points1)
-        avg_y2 = sum_y2/len(points2)
-        avg_x1 = sum_x1/len(points1)
-        avg_x2 = sum_x2/len(points1)
-        px_dist1 = calculate_distance_between_points(warp_point((avg_x1,avg_y1),M),vehicle_front)
-        px_dist2 = calculate_distance_between_points(warp_point((avg_x2,avg_y2),M),vehicle_front)
-        px_dist = (px_dist1[0] - px_dist2[0], px_dist1[1] - px_dist2[1])
-        real_dist = estimate_real_distance(px_dist,x_conv,y_conv)
-        y_dist = real_dist[1]
-        y_speed = y_dist/(time_between_points * 5)
-#            diagonal_distance = math.sqrt((real_dist[0]**2)+(real_dist[1]**2))
-#            distance_list.append(diagonal_distance)
-#        for distance in distance_list:
-#            if previous_distance !=0:
-#                distance_in_time = previous_distance-distance
-#                distance_sum = distance_sum + distance_in_time
-#            previous_distance = distance
-#        avg_speed = distance_sum/time_between_points/(len(distance_list)-1)
-        unique_cars_speed.append(y_speed)
-    return unique_cars_speed
 def label_cars(set_of_found_cars, height):
     unique_cars = []
     number_of_frames = 6
@@ -122,12 +79,13 @@ def label_cars(set_of_found_cars, height):
                     unique_cars.append(unique_car)
     return unique_cars
 
+
 def separate_points(points, left_left_lane_points,left_lane_points, right_lane_points, right_right_lane_points, img_middle):
     left_distance_list = []
     right_distance_list =[]
     for point in points:
         distance = point[0] - img_middle
-        if distance <0:
+        if distance < 0:
             left_distance_list.append(abs(distance))
         if distance >= 0:
             right_distance_list.append(abs(distance))
@@ -158,8 +116,7 @@ def find_middle_pixel_on_height(lane_mask, height):
         if horizontal_lane[previous_pixel]*horizontal_lane[current_pixel]==1:
             cnt1=cnt1+1
         elif horizontal_lane[previous_pixel]*horizontal_lane[current_pixel]==0 and cnt1!=0:
-            if cnt1 < height//4:
-                points_list.append((current_pixel-cnt1//2,height))
+            points_list.append((current_pixel-cnt1//2,height))
             cnt1=0
         elif horizontal_lane[current_pixel]==0:
             cnt0=cnt0+1
@@ -168,12 +125,12 @@ def find_middle_pixel_on_height(lane_mask, height):
     return points_list
 
 
-def display_from_list(img, list_of_points, mask, color):
-    previous_element = []  # rysowanie prawej linii Tomka
+def display_from_list(img, list_of_points, height, color):
+    previous_element = []
     for element in list_of_points:
-        # cv2.circle(img, element, 2, [0, 255, 255], 2)
+        # cv2.circle(img, element, 1, [0, 255, 255], 2)
         if len(previous_element) != 0:
-            if abs(previous_element[0] - element[0]) < mask.shape[1] // 5: # ll_seg_mask
+            if abs(previous_element[0] - element[0]) < height // 5: # ll_seg_mask
                 cv2.line(img, previous_element, element, color, 2)
         previous_element = element
     return img
@@ -212,8 +169,7 @@ def average_line(set_of_lines):
     longest_list = work_list[c]
     work_list.pop(c)
     for point in longest_list:
-        all_points_on_height = []
-        all_points_on_height.append(point)
+        all_points_on_height = [point]
         for other_list in work_list:
             all_points_on_height.append(find_point_on_height(other_list, point[1]))
         final_list.append(average_point(all_points_on_height))
@@ -321,6 +277,34 @@ def appending_list_if_found_or_not(side_points_list, previous_lines_list):
     return previous_lines_list
 
 
+def furthest_points(line):
+    xx = []
+    for point in line:
+        xx.append(point[0])
+    max_left, max_right = min(xx), max(xx)
+    return [max_left, max_right]
+
+
+def aproximate_line(set_of_lines, degree, fleft, fright, horizon1, horizon2):
+    iksy, igreki, poly_line = [], [], []
+    if len(set_of_lines) > 5:
+        avg_line = average_line(set_of_lines)
+        for point in avg_line:
+            iksy.append(point[0])
+            igreki.append(point[1])
+        polynomial = np.poly1d(np.polyfit(iksy, igreki, degree))
+        a = furthest_points(avg_line)
+        if fleft > a[0]:
+            fleft = a[0]
+        if fright < a[1]:
+            fright = a[1]
+        ttt = np.linspace(fleft, fright, fright - fleft + 1)  # szerokośc czyli najdalej lewa i prawa
+        for x in ttt:
+            if horizon2 >= int(polynomial(x)) >= horizon1:
+                poly_line.append([int(x), int(polynomial(x))]) # warunek upper bottom horyzont
+    return poly_line, fleft, fright
+
+
 def detect(cfg,opt,calibration_points):
 
     logger, _, _ = create_logger(
@@ -369,10 +353,13 @@ def detect(cfg,opt,calibration_points):
     (path, img, img_det, vid_cap, shapes) = dataset.__next__()
     height, width, _ = img_det.shape
 
-    global width_threshold
-    width_threshold = width // 50
+    global width_threshold, threshold
+    width_threshold = width // divide
+    threshold = math.sqrt(width*height)//divide
 
+    # M, Minv = get_warp_perspective(calibration_points, (height, width))
     # print(type(img_det[0][0][0]))
+
     if calibration_points is not None:
         bottom_horizon = calibration_points[4]
         upper_horizon = calibration_points[5]  # gorny horyzont - pikselowo mniejsza wartość!
@@ -396,6 +383,9 @@ def detect(cfg,opt,calibration_points):
     set_of_lines_right = []
     set_of_lines_left = []
     set_of_found_cars = []
+
+    fleft1, fright1 = width*2, 0
+    fleft2, fright2 = width*2, 0
 
     for i, (path, img, img_det, vid_cap, shapes) in tqdm(enumerate(dataset),total = len(dataset)):
 
@@ -449,25 +439,17 @@ def detect(cfg,opt,calibration_points):
         #ll_seg_mask = process_lane_mask(ll_seg_mask)
         #ll_seg_mask = morphological_process(ll_seg_mask, kernel_size=7, func_type=cv2.MORPH_OPEN)
         #ll_seg_mask = connect_lane(ll_seg_mask)
-        # color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
-        # color_area[ll_seg_mask == 1] = [255, 0, 0]
+        #color_area = np.zeros((ll_seg_mask.shape[0],ll_seg_mask.shape[1], 3), dtype=np.uint8)
+        #color_area[ll_seg_mask == 1] = [255, 0, 0]
 
         # ############################################################TOMEK#############################################
-        #birds_img_with_mask = img_det.copy()
-        #birds_img_with_mask[ll_seg_mask == 0]=[0,0,0]#nalozenie maski
-        #birds_img_with_mask = warp_image_to_birdseye_view(birds_img_with_mask, M)#warp
-        #hough_lines = get_hough_lanes(birds_img_with_mask)
-        #birds_img_with_mask=display_hough_lines(birds_img_with_mask,hough_lines)
-
-        #cv2.imshow("birds_img_with_mask",birds_img_with_mask)
-        #cv2.waitKey(1)
-
-        birds_img = img_det.copy()
-        birds_img = warp_image_to_birdseye_view(birds_img, M)  # warp
+        img_det_copy = img_det.copy()
+        birds_img = warp_image_to_birdseye_view(img_det_copy, M)
         # birds_ll_seg_mask = warp_image_to_birdseye_view(ll_seg_mask, M)
         # print(birds_img.shape,' + ', birds_ll_seg_mask.shape)
         # img_det_birdseye = cv2.bitwise_and(birds_img, birds_img, mask=birds_ll_seg_mask)
-        cv2.circle(img_det, optic_middle, 2, [0, 0, 255], 5)
+
+        # cv2.circle(img_det, optic_middle_upper, 2, [0, 0, 255], 5)
 
         # upper_horizon_warped = warp_point(upper_horizon, M) # do wyszukiwania linii na birds_eye
         # bottom_horizon_warped = warp_point(bottom_horizon, M)
@@ -485,16 +467,14 @@ def detect(cfg,opt,calibration_points):
             # cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask, horizontal_line)
             if i <= first_phase:
-                left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points =\
-                    separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,img_middle)
-
+                left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points = separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,ll_seg_mask.shape[1]//2)
                 left_lane_points = deleting_far_points_from_list(left_lane_points)
                 right_lane_points = deleting_far_points_from_list(right_lane_points)
 
             for point in points:
+                # cv2.circle(img_det, point, 1, [255, 255, 255], 2)
                 howfar = 100000000000
                 points_list.append(point)
-                # cv2.circle(img_det, point, 2, [0, 255, 255], 2)
                 if i >= second_phase:
                     right_lane_points, left_lane_points = finding_closest_point_by_width_and_height(point, last_points, howfar, right_lane_points, left_lane_points, i)
 
@@ -503,38 +483,17 @@ def detect(cfg,opt,calibration_points):
         set_of_lines_left = appending_list_if_found_or_not(left_lane_points, set_of_lines_left)
         set_of_lines_right = appending_list_if_found_or_not(right_lane_points, set_of_lines_right)
 
-        img_det = display_from_set(img_det, set_of_lines_right, ll_seg_mask)
-        img_det = display_from_set(img_det, set_of_lines_left, ll_seg_mask)
+        left_line, fleft1, fright1 = aproximate_line(set_of_lines_left, 2, fleft1, fright1, upper_horizon[1], bottom_horizon[1])
+        right_line, fleft2, fright2 = aproximate_line(set_of_lines_right, 2, fleft2, fright2, upper_horizon[1], bottom_horizon[1])
+        img_det = display_from_list(img_det, left_line, h, (0, 255, 255))
+        img_det = display_from_list(img_det, right_line, h, (0, 255, 255))
+        for pointl in left_lane_points:
+            cv2.circle(img_det, pointl, 2, [0, 0, 255], 6)
+        for pointr in right_lane_points:
+            cv2.circle(img_det, pointr, 2, [0, 0, 255], 6)
 
-        # TESTY PRZYBLIZANIA POLYFIT
-        iksy, igreki, poly_line = [], [], []
-        if len(set_of_lines_left)>5:
-            avg_left_line = average_line(set_of_lines_left)
-            for point in avg_left_line:
-                iksy.append(point[0])
-                igreki.append(point[1])
-            # igreki.reverse()
-            polynomial = np.poly1d(np.polyfit(iksy, igreki, 3))
-            ttt = np.linspace(0, 1280, 1281)
-            work1, work2 = [], []
-            for x in ttt:
-                if bottom_horizon[1] > polynomial(x) > upper_horizon[1]:
-                    poly_line.append([int(x), int(polynomial(x))])
-                    work2.append(polynomial(x))
-                    work1.append(x)
-            plt.imshow(img_det)
-            plt.plot(work1, work2, '-m')
-            plt.title("Działa?")
-            # plt.show()
-        img_det = display_from_list(img_det, poly_line, ll_seg_mask, [0, 0, 255])
-        # img_det = display_from_list(img_det, right_lane_points, ll_seg_mask)
-        # img_det = display_from_list(img_det, left_lane_points, ll_seg_mask)
-
-        # ZROBIC RYSOWANIE SREDNICH LINII Z TEGO NA GORZE
-
-        # middle_middle=int(img_det.shape[1]/2), int(img_det.shape[0]/2)
-        # middle_lower=(int(img_det.shape[1]/2), img_det.shape[0])
-        # cv2.line(img_det, (middle_lower), (middle_middle), [10,20,255], 1) #linia srodkowa
+        # img_det = display_from_set(img_det, set_of_lines_right, ll_seg_mask)
+        # img_det = display_from_set(img_det, set_of_lines_left, ll_seg_mask)
 
         img_det = img_det.astype(np.uint8)
         # img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
@@ -551,42 +510,72 @@ def detect(cfg,opt,calibration_points):
                 bottom_y = int(xyxy[3])
                 mid_x = int((xyxy[0]+xyxy[2])/2)
                 bottom_middle_point = (mid_x,bottom_y)
-                cv2.circle(img_det, bottom_middle_point, 2, [0,0,255],3)
                 found_cars_points_warped.append(warp_point(bottom_middle_point,M))
                 found_cars_points.append(bottom_middle_point)
                 #print(xyxy)
                 xyxy_list.append([warp_point((xyxy[0],bottom_y),M),warp_point((xyxy[2],bottom_y),M)])
         # odleglosc od samochodu
         set_of_found_cars.append(found_cars_points)
-        unique_cars = label_cars(set_of_found_cars,height)#zrobic sredni punkt samochodu z 5 klatek i porownwyac w danej klatce i kolejnej do predkosci
+        unique_cars = label_cars(set_of_found_cars,h)#zrobic sredni punkt samochodu z 5 klatek i porownwyac w danej klatce i kolejnej do predkosci
         average_cars_points = average_points(unique_cars)
+        #polozenie na pasie
+        cv2.circle(img_det, vehicle_front, 2, [0, 0, 255], 3)
+        left_line_first_x=-1
+        right_line_first_x=-1
+        for point in left_line:
+            if abs(point[1]-vehicle_front[1])<4:
+                left_line_first_x=point[0]
+                cv2.circle(img_det, point, 2, [255, 0, 255], 5)
+                break
+        for point in right_line:
+            if abs(point[1]-vehicle_front[1])<4:
+                right_line_first_x=point[0]
+                cv2.circle(img_det, point, 2, [255, 0, 255], 5)
+                break
+        if left_line_first_x!=-1 and right_line_first_x!=-1:
+            lines_middle_x = (left_line_first_x+right_line_first_x)//2
+            lines_middle_point = (lines_middle_x, vehicle_front[1])
+            cv2.circle(img_det, lines_middle_point, 2, [255, 0, 255], 10)
+            dist_polozenie = calculate_distance_between_points(warp_point(vehicle_front,M),warp_point(lines_middle_point,M))
+            dist_szerokosc_pasa = calculate_distance_between_points(warp_point((left_line_first_x,vehicle_front[1]),M),
+                                                                    warp_point((right_line_first_x,vehicle_front[1]),M))
+            real_polozenie = estimate_real_distance(dist_polozenie, x_conv, y_conv)
+            real_szerokosc = estimate_real_distance(dist_szerokosc_pasa, x_conv, y_conv)
 
-        #avg_speed_list = estimate_speed_towards_car(unique_cars, vehicle_front, x_conv,y_conv,M)
-        #print(avg_speed_list)
-        #for i in range(len(unique_cars)):
-        #    cv2.putText(img_det, str(round(avg_speed_list[i]*3.6, 1))+"km/h", (unique_cars[i][0]), cv2.FONT_HERSHEY_DUPLEX,
-        #            1, [125, 246, 55], thickness=1)
-        #print(found_cars_points)
+            if real_szerokosc[0]<2 or real_szerokosc[0] >4:
+                cv2.putText(img_det, "bledny odczyt linii!", (300,30),
+                            cv2.FONT_HERSHEY_DUPLEX,
+                            1, [0, 0, 255], thickness=2
+                            )
+            elif real_polozenie[0] >0.8:
+                cv2.putText(img_det, str(round(real_polozenie[0],2))+"m od srodka, zmiana pasa na lewy", (300,30),
+                            cv2.FONT_HERSHEY_DUPLEX,
+                            1, [125, 246, 55], thickness=2)
+
+            elif real_polozenie[0] < -0.8:
+                cv2.putText(img_det, str(round(real_polozenie[0],2))+"m od srodka, zmiana pasa na prawy ", (300,30),
+                            cv2.FONT_HERSHEY_DUPLEX,
+                            1, [125, 246, 55], thickness=2)
+
+            else:
+                cv2.putText(img_det, str(round(real_polozenie[0],2))+"m od srodka", (300,30),
+                            cv2.FONT_HERSHEY_DUPLEX,
+                            1, [125, 246, 55], thickness=2)
+
+
         for point in average_cars_points:
             cv2.circle(birds_img, warp_point(point, M), 2, [0, 0, 255], 5)
-            px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehicle_front,M))
-            real_dist = estimate_real_distance(px_distance,x_conv,y_conv)
-            diagonal_distnace = math.sqrt((real_dist[0]**2)+(real_dist[1]**2))
-            if real_dist[0]<1 and real_dist[1]<15:
-                cv2.putText(img_det, ("!!!"+str(round(diagonal_distnace, 1))+"!!!"), point, cv2.FONT_HERSHEY_DUPLEX,
-                            1, [0,0, 255], thickness=2)
+            px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehicle_front, M))
+            real_dist = estimate_real_distance(px_distance, x_conv, y_conv)
+            diagonal_distnace = math.sqrt((real_dist[0] ** 2) + (real_dist[1] ** 2))
+            if real_dist[0] < 0.25 and real_dist[1] < 10:
+                cv2.putText(img_det, ("!!!" + str(round(diagonal_distnace, 1)) + "m!!!"), (point[0]-10,point[1]), cv2.FONT_HERSHEY_DUPLEX,
+                            1, [0, 0, 255], thickness=2)
             else:
-                cv2.putText(img_det, str(round(diagonal_distnace,1)), point, cv2.FONT_HERSHEY_DUPLEX,
-                        1,[125, 246, 55], thickness=1)
-            #cv2.putText(img_det, str((round(real_dist[0], 1), round(real_dist[1], 1))), point, cv2.FONT_HERSHEY_DUPLEX,
-            #            1,[125, 246, 55], thickness=1)
-            #print(diagonal_distnace)
-            #cv2.putText(birds_img, str(round(diagonal_distnace,1)), warp_point(point, M), cv2.FONT_HERSHEY_DUPLEX, 1,
-            #            [125, 246, 55], thickness=2)
-
+                cv2.putText(img_det, (str(round(diagonal_distnace, 1))+"m"), (point[0]-10,point[1]), cv2.FONT_HERSHEY_DUPLEX,
+                            1, [125, 246, 55], thickness=1)
         cv2.circle(birds_img, warp_point(vehicle_front,M), 2, [0, 0, 255], 5)
-        cv2.imshow("img",birds_img)
-        cv2.waitKey(1)
+
         if dataset.mode == 'images':
             cv2.imwrite(save_path, img_det)
 
@@ -600,6 +589,7 @@ def detect(cfg,opt,calibration_points):
                 fps = vid_cap.get(cv2.CAP_PROP_FPS)
                 h,w,_= img_det.shape
                 vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
+                print(h,w)
             vid_writer.write(img_det)
 
             if keyboard.is_pressed('q') or keyboard.is_pressed('esc'):
@@ -613,8 +603,8 @@ def detect(cfg,opt,calibration_points):
 
         cv2.imshow("lanes", img_det)
         cv2.waitKey(1)
-        # cv2.imshow("birdseye", img_det_birdseye)
-        # cv2.waitKey(1)
+        cv2.imshow("birdseye", birds_img)
+        cv2.waitKey(1)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -622,15 +612,18 @@ def detect(cfg,opt,calibration_points):
 
 
 if __name__ == '__main__':
-    calibration_points = camera_calibration("inference/vid2/calibration.png", "inference/vid2/calibration.txt")
+    test_path = 'inference/vid2'
+    calibrate = 1
+    if calibrate == 1:
+        calibration_points = camera_calibration(test_path+"/calibration.png", test_path+"/calibration.txt")
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='weights/End-to-end.pth', help='model.pth path(s)')
-    parser.add_argument('--source', type=str, default='inference/vid2', help='source')  # file/folder   ex:inference/images
+    parser.add_argument('--source', type=str, default=test_path, help='source')  # file/folder   ex:inference/images
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.7, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.8, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
     parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--save-dir', type=str, default='inference/output', help='directory to save results')
+    parser.add_argument('--save-dir', type=str, default=test_path+'/output', help='directory to save results')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
     opt = parser.parse_args()
