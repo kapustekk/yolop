@@ -47,6 +47,51 @@ transform = transforms.Compose([
             normalize,
         ])
 
+def position_on_road(img_det,road_middle,left_line,right_line,x_conv,y_conv,M):
+    vehicle_front = road_middle
+    cv2.circle(img_det, vehicle_front, 2, [0, 0, 255], 3)
+    left_line_first_x = -1
+    right_line_first_x = -1
+    for point in left_line:
+        if abs(point[1] - vehicle_front[1]) < 4:
+            left_line_first_x = point[0]
+            cv2.circle(img_det, point, 2, [255, 0, 255], 5)
+            break
+    for point in right_line:
+        if abs(point[1] - vehicle_front[1]) < 4:
+            right_line_first_x = point[0]
+            cv2.circle(img_det, point, 2, [255, 0, 255], 5)
+            break
+    if left_line_first_x != -1 and right_line_first_x != -1:
+        lines_middle_x = (left_line_first_x + right_line_first_x) // 2
+        lines_middle_point = (lines_middle_x, vehicle_front[1])
+        cv2.circle(img_det, lines_middle_point, 2, [255, 0, 255], 10)
+        dist_polozenie = calculate_distance_between_points(warp_point(vehicle_front, M),
+                                                           warp_point(lines_middle_point, M))
+        dist_szerokosc_pasa = calculate_distance_between_points(warp_point((left_line_first_x, vehicle_front[1]), M),
+                                                                warp_point((right_line_first_x, vehicle_front[1]), M))
+        real_polozenie = estimate_real_distance(dist_polozenie, x_conv, y_conv)
+        real_szerokosc = estimate_real_distance(dist_szerokosc_pasa, x_conv, y_conv)
+
+        if real_szerokosc[0] < 2 or real_szerokosc[0] > 4:
+            cv2.putText(img_det, "bledny odczyt linii!", (300, 30),
+                        cv2.FONT_HERSHEY_DUPLEX,
+                        1, [0, 0, 255], thickness=2
+                        )
+        elif real_polozenie[0] > 0.8:
+            cv2.putText(img_det, str(round(real_polozenie[0], 2)) + "m od srodka, zmiana pasa na lewy", (300, 30),
+                        cv2.FONT_HERSHEY_DUPLEX,
+                        1, [125, 246, 55], thickness=2)
+
+        elif real_polozenie[0] < -0.8:
+            cv2.putText(img_det, str(round(real_polozenie[0], 2)) + "m od srodka, zmiana pasa na prawy ", (300, 30),
+                        cv2.FONT_HERSHEY_DUPLEX,
+                        1, [125, 246, 55], thickness=2)
+
+        else:
+            cv2.putText(img_det, str(round(real_polozenie[0], 2)) + "m od srodka", (300, 30),
+                        cv2.FONT_HERSHEY_DUPLEX,
+                        1, [125, 246, 55], thickness=2)
 
 def estimate_speed_towards_car(vehicle_front, unique_cars_10, x_conv,y_conv, M, fps=30):
     unique_cars_speed = []
@@ -511,10 +556,11 @@ def detect(cfg,opt,calibration_points):
         right_line, fleft2, fright2 = aproximate_line(set_of_lines_right, right_poly_degree, fleft2, fright2, upper_horizon[1], bottom_horizon[1])
         img_det = display_from_list(img_det, left_line, h, (0, 255, 255))
         img_det = display_from_list(img_det, right_line, h, (0, 255, 255))
-        for pointl in left_lane_points:
-            cv2.circle(img_det, pointl, 2, [0, 0, 255], 6)
-        for pointr in right_lane_points:
-            cv2.circle(img_det, pointr, 2, [0, 0, 255], 6)
+
+        #for pointl in left_lane_points:
+        #    cv2.circle(img_det, pointl, 2, [0, 0, 255], 6)
+        #for pointr in right_lane_points:
+        #    cv2.circle(img_det, pointr, 2, [0, 0, 255], 6)
 
         # img_det = display_from_set(img_det, set_of_lines_right, ll_seg_mask)
         # img_det = display_from_set(img_det, set_of_lines_left, ll_seg_mask)
@@ -544,50 +590,9 @@ def detect(cfg,opt,calibration_points):
         unique_cars_5 = label_cars(set_of_found_cars,h,5)#zrobic sredni punkt samochodu z 5 klatek i porownwyac w danej klatce i kolejnej do predkosci
         average_cars_points = average_points(unique_cars_5,-5,-1)
         estimated_speed_list = estimate_speed_towards_car(vehicle_front,unique_cars_30,x_conv,y_conv,M)
-        print(estimated_speed_list)
-        #polozenie na pasie
-        cv2.circle(img_det, vehicle_front, 2, [0, 0, 255], 3)
-        left_line_first_x=-1
-        right_line_first_x=-1
-        for point in left_line:
-            if abs(point[1]-vehicle_front[1])<4:
-                left_line_first_x=point[0]
-                cv2.circle(img_det, point, 2, [255, 0, 255], 5)
-                break
-        for point in right_line:
-            if abs(point[1]-vehicle_front[1])<4:
-                right_line_first_x=point[0]
-                cv2.circle(img_det, point, 2, [255, 0, 255], 5)
-                break
-        if left_line_first_x!=-1 and right_line_first_x!=-1:
-            lines_middle_x = (left_line_first_x+right_line_first_x)//2
-            lines_middle_point = (lines_middle_x, vehicle_front[1])
-            cv2.circle(img_det, lines_middle_point, 2, [255, 0, 255], 10)
-            dist_polozenie = calculate_distance_between_points(warp_point(vehicle_front,M),warp_point(lines_middle_point,M))
-            dist_szerokosc_pasa = calculate_distance_between_points(warp_point((left_line_first_x,vehicle_front[1]),M),
-                                                                    warp_point((right_line_first_x,vehicle_front[1]),M))
-            real_polozenie = estimate_real_distance(dist_polozenie, x_conv, y_conv)
-            real_szerokosc = estimate_real_distance(dist_szerokosc_pasa, x_conv, y_conv)
 
-            if real_szerokosc[0]<2 or real_szerokosc[0] >4:
-                cv2.putText(img_det, "bledny odczyt linii!", (300,30),
-                            cv2.FONT_HERSHEY_DUPLEX,
-                            1, [0, 0, 255], thickness=2
-                            )
-            elif real_polozenie[0] >0.8:
-                cv2.putText(img_det, str(round(real_polozenie[0],2))+"m od srodka, zmiana pasa na lewy", (300,30),
-                            cv2.FONT_HERSHEY_DUPLEX,
-                            1, [125, 246, 55], thickness=2)
+        position_on_road(img_det,optic_middle_bottom,left_line,right_line,x_conv,y_conv,M) #polozenie na pasie
 
-            elif real_polozenie[0] < -0.8:
-                cv2.putText(img_det, str(round(real_polozenie[0],2))+"m od srodka, zmiana pasa na prawy ", (300,30),
-                            cv2.FONT_HERSHEY_DUPLEX,
-                            1, [125, 246, 55], thickness=2)
-
-            else:
-                cv2.putText(img_det, str(round(real_polozenie[0],2))+"m od srodka", (300,30),
-                            cv2.FONT_HERSHEY_DUPLEX,
-                            1, [125, 246, 55], thickness=2)
         i = 0
         for point in average_cars_points:
             cv2.circle(birds_img, warp_point(point, M), 2, [0, 0, 255], 5)
@@ -645,7 +650,7 @@ def detect(cfg,opt,calibration_points):
 
 
 if __name__ == '__main__':
-    test_path = 'inference/vid2'
+    test_path = 'inference/test_dlugi'
     calibration_points = []
     calibrate = 1
     if calibrate == 1:
