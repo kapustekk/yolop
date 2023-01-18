@@ -47,22 +47,40 @@ transform = transforms.Compose([
             normalize,
         ])
 
-def average_points(unique_cars):
+
+def estimate_speed_towards_car(vehicle_front, unique_cars_10, x_conv,y_conv, M, fps=30):
+    unique_cars_speed = []
+    if len(unique_cars_10)>0:
+        vehicle_front = warp_point(vehicle_front,M)
+        unique_cars1=average_points(unique_cars_10, -30, -16)
+        unique_cars2=average_points(unique_cars_10, -15, -1)
+        time_between_points = 15 / fps
+        if len(unique_cars1)==len(unique_cars2):
+            for car1, car2 in zip(unique_cars1,unique_cars2):
+                px_dist1 = calculate_distance_between_points(warp_point(car1,M),vehicle_front)
+                px_dist2 = calculate_distance_between_points(warp_point(car2,M),vehicle_front)
+                real_dist1 = estimate_real_distance(px_dist1,x_conv,y_conv)
+                real_dist2 = estimate_real_distance(px_dist2,x_conv,y_conv)
+                speed = (real_dist2[1]-real_dist1[1])/time_between_points
+                unique_cars_speed.append(speed)
+    return unique_cars_speed
+
+def average_points(unique_cars,start_point,end_point):
     unique_cars_average = []
     for car in unique_cars:
+        car = car[start_point:end_point]
         sum_y1=0
         sum_x1=0
         for point in car:
              sum_y1 = sum_y1+point[1]
              sum_x1 = sum_x1+point[0]
-        avg_y1 = sum_y1//len(car)
-        avg_x1 = sum_x1//len(car)
+        avg_y1 = int(sum_y1/len(car))
+        avg_x1 = int(sum_x1/len(car))
         unique_cars_average.append((avg_x1,avg_y1))
     return unique_cars_average
 
-def label_cars(set_of_found_cars, height):
+def label_cars(set_of_found_cars, height, number_of_frames):
     unique_cars = []
-    number_of_frames = 6
     if len(set_of_found_cars)>number_of_frames:
         first_set = set_of_found_cars[-(number_of_frames+1)]
         for car_point in first_set:
@@ -482,9 +500,15 @@ def detect(cfg,opt,calibration_points):
 
         set_of_lines_left = appending_list_if_found_or_not(left_lane_points, set_of_lines_left)
         set_of_lines_right = appending_list_if_found_or_not(right_lane_points, set_of_lines_right)
+        left_poly_degree = 1
+        right_poly_degree = 1
+        if len(left_lane_points)>10:
+            left_poly_degree = 2
+        if len(right_lane_points)>10:
+            right_poly_degree = 2
 
-        left_line, fleft1, fright1 = aproximate_line(set_of_lines_left, 2, fleft1, fright1, upper_horizon[1], bottom_horizon[1])
-        right_line, fleft2, fright2 = aproximate_line(set_of_lines_right, 2, fleft2, fright2, upper_horizon[1], bottom_horizon[1])
+        left_line, fleft1, fright1 = aproximate_line(set_of_lines_left, left_poly_degree, fleft1, fright1, upper_horizon[1], bottom_horizon[1])
+        right_line, fleft2, fright2 = aproximate_line(set_of_lines_right, right_poly_degree, fleft2, fright2, upper_horizon[1], bottom_horizon[1])
         img_det = display_from_list(img_det, left_line, h, (0, 255, 255))
         img_det = display_from_list(img_det, right_line, h, (0, 255, 255))
         for pointl in left_lane_points:
@@ -516,8 +540,11 @@ def detect(cfg,opt,calibration_points):
                 xyxy_list.append([warp_point((xyxy[0],bottom_y),M),warp_point((xyxy[2],bottom_y),M)])
         # odleglosc od samochodu
         set_of_found_cars.append(found_cars_points)
-        unique_cars = label_cars(set_of_found_cars,h)#zrobic sredni punkt samochodu z 5 klatek i porownwyac w danej klatce i kolejnej do predkosci
-        average_cars_points = average_points(unique_cars)
+        unique_cars_30 = label_cars(set_of_found_cars,h,30)
+        unique_cars_5 = label_cars(set_of_found_cars,h,5)#zrobic sredni punkt samochodu z 5 klatek i porownwyac w danej klatce i kolejnej do predkosci
+        average_cars_points = average_points(unique_cars_5,-5,-1)
+        estimated_speed_list = estimate_speed_towards_car(vehicle_front,unique_cars_30,x_conv,y_conv,M)
+        print(estimated_speed_list)
         #polozenie na pasie
         cv2.circle(img_det, vehicle_front, 2, [0, 0, 255], 3)
         left_line_first_x=-1
@@ -561,19 +588,24 @@ def detect(cfg,opt,calibration_points):
                 cv2.putText(img_det, str(round(real_polozenie[0],2))+"m od srodka", (300,30),
                             cv2.FONT_HERSHEY_DUPLEX,
                             1, [125, 246, 55], thickness=2)
-
-
+        i = 0
         for point in average_cars_points:
             cv2.circle(birds_img, warp_point(point, M), 2, [0, 0, 255], 5)
             px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehicle_front, M))
             real_dist = estimate_real_distance(px_distance, x_conv, y_conv)
             diagonal_distnace = math.sqrt((real_dist[0] ** 2) + (real_dist[1] ** 2))
-            if real_dist[0] < 0.25 and real_dist[1] < 10:
-                cv2.putText(img_det, ("!!!" + str(round(diagonal_distnace, 1)) + "m!!!"), (point[0]-10,point[1]), cv2.FONT_HERSHEY_DUPLEX,
+
+            if len(estimated_speed_list)>i:
+                speed_towards_car = 3.6*estimated_speed_list[i]
+                cv2.putText(img_det, (str(round(speed_towards_car, 1))+"km/h"), (point[0]-30,point[1]+30), cv2.FONT_HERSHEY_DUPLEX,
+                            1, [125, 246, 55], thickness=1)
+            if real_dist[0] < 0.25 and real_dist[1] < 15 and speed_towards_car<-30:
+                cv2.putText(img_det, ("!!!" + str(round(diagonal_distnace, 1)) + "m!!!"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
                             1, [0, 0, 255], thickness=2)
             else:
-                cv2.putText(img_det, (str(round(diagonal_distnace, 1))+"m"), (point[0]-10,point[1]), cv2.FONT_HERSHEY_DUPLEX,
+                cv2.putText(img_det, (str(round(diagonal_distnace, 1))+"m"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
                             1, [125, 246, 55], thickness=1)
+            i=i+1
         cv2.circle(birds_img, warp_point(vehicle_front,M), 2, [0, 0, 255], 5)
 
         if dataset.mode == 'images':
@@ -613,6 +645,7 @@ def detect(cfg,opt,calibration_points):
 
 if __name__ == '__main__':
     test_path = 'inference/vid2'
+    calibration_points = []
     calibrate = 1
     if calibrate == 1:
         calibration_points = camera_calibration(test_path+"/calibration.png", test_path+"/calibration.txt")
