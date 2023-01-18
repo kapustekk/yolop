@@ -594,15 +594,16 @@ def detect(cfg,opt,calibration_points):
             px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehicle_front, M))
             real_dist = estimate_real_distance(px_distance, x_conv, y_conv)
             diagonal_distnace = math.sqrt((real_dist[0] ** 2) + (real_dist[1] ** 2))
-
+            distance_written = False
             if len(estimated_speed_list)>i:
                 speed_towards_car = 3.6*estimated_speed_list[i]
                 cv2.putText(img_det, (str(round(speed_towards_car, 1))+"km/h"), (point[0]-30,point[1]+30), cv2.FONT_HERSHEY_DUPLEX,
                             1, [125, 246, 55], thickness=1)
-            if real_dist[0] < 0.25 and real_dist[1] < 15 and speed_towards_car<-30:
-                cv2.putText(img_det, ("!!!" + str(round(diagonal_distnace, 1)) + "m!!!"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
-                            1, [0, 0, 255], thickness=2)
-            else:
+                if abs(real_dist[0]) < 0.5 and real_dist[1] < 15 and speed_towards_car<-30:
+                    cv2.putText(img_det, ("!!!" + str(round(diagonal_distnace, 1)) + "m!!!"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
+                                1, [0, 0, 255], thickness=2)
+                    distance_written = True
+            if distance_written == False:
                 cv2.putText(img_det, (str(round(diagonal_distnace, 1))+"m"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
                             1, [125, 246, 55], thickness=1)
             i=i+1
