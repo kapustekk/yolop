@@ -35,7 +35,7 @@ print(sys.path)
 
 divide = 40
 points_density = 20  # dobre 20/40
-first_phase = points_density//3
+first_phase = points_density//2
 second_phase = first_phase+1
 
 normalize = transforms.Normalize(
@@ -106,7 +106,7 @@ def estimate_speed_towards_car(vehicle_front, unique_cars_10, x_conv,y_conv, M, 
                 px_dist2 = calculate_distance_between_points(warp_point(car2,M),vehicle_front)
                 real_dist1 = estimate_real_distance(px_dist1,x_conv,y_conv)
                 real_dist2 = estimate_real_distance(px_dist2,x_conv,y_conv)
-                speed = (real_dist2[1]-real_dist1[1])/time_between_points
+                speed = (real_dist1[1]-real_dist2[1])/time_between_points
                 unique_cars_speed.append(speed)
     return unique_cars_speed
 
@@ -423,7 +423,7 @@ def detect(cfg,opt,calibration_points):
     # M, Minv = get_warp_perspective(calibration_points, (height, width))
     # print(type(img_det[0][0][0]))
 
-    if calibration_points is not None:
+    if len(calibration_points)>0:
         bottom_horizon = calibration_points[4]
         upper_horizon = calibration_points[5]  # gorny horyzont - pikselowo mniejsza wartość!
         D = bottom_horizon[1] - upper_horizon[1]
@@ -439,8 +439,10 @@ def detect(cfg,opt,calibration_points):
         # optic_middle_upper_warp = warp_point(optic_middle_upper, M)
     else:
         img_middle = width//2
-        bottom_horizon = height
-        upper_horizon = height//2  # gorny horyzont - pikselowo mniejsza wartość!
+        print(img_middle)
+        bottom_horizon = (img_middle,height-5)
+        upper_horizon = (img_middle,int(0.6*height))  # gorny horyzont - pikselowo mniejsza wartość!
+        D = bottom_horizon[1] - upper_horizon[1]
 
 
     set_of_lines_right = []
@@ -506,8 +508,6 @@ def detect(cfg,opt,calibration_points):
         #color_area[ll_seg_mask == 1] = [255, 0, 0]
 
         # ############################################################TOMEK#############################################
-        img_det_copy = img_det.copy()
-        birds_img = warp_image_to_birdseye_view(img_det_copy, M)
         # birds_ll_seg_mask = warp_image_to_birdseye_view(ll_seg_mask, M)
         # print(birds_img.shape,' + ', birds_ll_seg_mask.shape)
         # img_det_birdseye = cv2.bitwise_and(birds_img, birds_img, mask=birds_ll_seg_mask)
@@ -530,7 +530,7 @@ def detect(cfg,opt,calibration_points):
             # cv2.line(img_det, (0,horizontal_line), (ll_seg_mask.shape[1],horizontal_line),[0,0,100],1)
             points = find_middle_pixel_on_height(ll_seg_mask, horizontal_line)
             if i <= first_phase:
-                left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points = separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,ll_seg_mask.shape[1]//2)
+                left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points = separate_points(points, left_left_lane_points, left_lane_points, right_lane_points, right_right_lane_points,img_middle)
                 left_lane_points = deleting_far_points_from_list(left_lane_points)
                 right_lane_points = deleting_far_points_from_list(right_lane_points)
 
@@ -557,10 +557,10 @@ def detect(cfg,opt,calibration_points):
         img_det = display_from_list(img_det, left_line, h, (0, 255, 255))
         img_det = display_from_list(img_det, right_line, h, (0, 255, 255))
 
-        #for pointl in left_lane_points:
-        #    cv2.circle(img_det, pointl, 2, [0, 0, 255], 6)
-        #for pointr in right_lane_points:
-        #    cv2.circle(img_det, pointr, 2, [0, 0, 255], 6)
+        for pointl in left_lane_points:
+            cv2.circle(img_det, pointl, 2, [0, 0, 255], 6)
+        for pointr in right_lane_points:
+            cv2.circle(img_det, pointr, 2, [0, 0, 255], 6)
 
         # img_det = display_from_set(img_det, set_of_lines_right, ll_seg_mask)
         # img_det = display_from_set(img_det, set_of_lines_left, ll_seg_mask)
@@ -569,9 +569,7 @@ def detect(cfg,opt,calibration_points):
         # img_det = cv2.resize(img_det, (1280, 720), interpolation=cv2.INTER_LINEAR)
         # img_det = show_seg_result(img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True)
 
-        found_cars_points_warped = []
         found_cars_points =[]
-        xyxy_list = []
         if len(det):
             det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
             for *xyxy,conf,cls in reversed(det):
@@ -580,39 +578,42 @@ def detect(cfg,opt,calibration_points):
                 bottom_y = int(xyxy[3])
                 mid_x = int((xyxy[0]+xyxy[2])/2)
                 bottom_middle_point = (mid_x,bottom_y)
-                found_cars_points_warped.append(warp_point(bottom_middle_point,M))
                 found_cars_points.append(bottom_middle_point)
-                #print(xyxy)
-                xyxy_list.append([warp_point((xyxy[0],bottom_y),M),warp_point((xyxy[2],bottom_y),M)])
-        # odleglosc od samochodu
-        set_of_found_cars.append(found_cars_points)
-        unique_cars_30 = label_cars(set_of_found_cars,h,30)
-        unique_cars_5 = label_cars(set_of_found_cars,h,5)#zrobic sredni punkt samochodu z 5 klatek i porownwyac w danej klatce i kolejnej do predkosci
-        average_cars_points = average_points(unique_cars_5,-5,-1)
-        estimated_speed_list = estimate_speed_towards_car(vehicle_front,unique_cars_30,x_conv,y_conv,M)
 
-        position_on_road(img_det,optic_middle_bottom,left_line,right_line,x_conv,y_conv,M) #polozenie na pasie
+        if len(calibration_points) > 0:
+            img_det_copy = img_det.copy()
+            birds_img = warp_image_to_birdseye_view(img_det_copy, M)
+            # odleglosc od samochodu
+            set_of_found_cars.append(found_cars_points)
+            unique_cars_30 = label_cars(set_of_found_cars,h,30)
+            unique_cars_5 = label_cars(set_of_found_cars,h,5)#zrobic sredni punkt samochodu z 5 klatek i porownwyac w danej klatce i kolejnej do predkosci
+            average_cars_points = average_points(unique_cars_5,-5,-1)
+            estimated_speed_list = estimate_speed_towards_car(vehicle_front,unique_cars_30,x_conv,y_conv,M)
 
-        i = 0
-        for point in average_cars_points:
-            cv2.circle(birds_img, warp_point(point, M), 2, [0, 0, 255], 5)
-            px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehicle_front, M))
-            real_dist = estimate_real_distance(px_distance, x_conv, y_conv)
-            diagonal_distnace = math.sqrt((real_dist[0] ** 2) + (real_dist[1] ** 2))
-            distance_written = False
-            if len(estimated_speed_list)>i:
-                speed_towards_car = 3.6*estimated_speed_list[i]
-                cv2.putText(img_det, (str(round(speed_towards_car, 1))+"km/h"), (point[0]-30,point[1]+30), cv2.FONT_HERSHEY_DUPLEX,
-                            1, [125, 246, 55], thickness=1)
-                if abs(real_dist[0]) < 0.5 and real_dist[1] < 15 and speed_towards_car<-30:
-                    cv2.putText(img_det, ("!!!" + str(round(diagonal_distnace, 1)) + "m!!!"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
-                                1, [0, 0, 255], thickness=2)
-                    distance_written = True
-            if distance_written == False:
-                cv2.putText(img_det, (str(round(diagonal_distnace, 1))+"m"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
-                            1, [125, 246, 55], thickness=1)
-            i=i+1
-        cv2.circle(birds_img, warp_point(vehicle_front,M), 2, [0, 0, 255], 5)
+            position_on_road(img_det,optic_middle_bottom,left_line,right_line,x_conv,y_conv,M) #polozenie na pasie
+
+            i = 0
+            for point in average_cars_points:
+                cv2.circle(birds_img, warp_point(point, M), 2, [0, 0, 255], 5)
+                px_distance = calculate_distance_between_points(warp_point(point, M), warp_point(vehicle_front, M))
+                real_dist = estimate_real_distance(px_distance, x_conv, y_conv)
+                diagonal_distnace = math.sqrt((real_dist[0] ** 2) + (real_dist[1] ** 2))
+                distance_written = False
+                if len(estimated_speed_list)>i:
+                    speed_towards_car = 3.6*estimated_speed_list[i]
+                    cv2.putText(img_det, (str(round(speed_towards_car, 1))+"km/h"), (point[0]-30,point[1]+30), cv2.FONT_HERSHEY_DUPLEX,
+                                1, [125, 246, 55], thickness=1)
+                    if abs(real_dist[0]) < 0.5 and real_dist[1] < 15 and speed_towards_car>30:
+                        cv2.putText(img_det, ("!!!" + str(round(diagonal_distnace, 1)) + "m!!!"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
+                                    1, [0, 0, 255], thickness=2)
+                        distance_written = True
+                if distance_written == False:
+                    cv2.putText(img_det, (str(round(diagonal_distnace, 1))+"m"), (point[0]-30,point[1]), cv2.FONT_HERSHEY_DUPLEX,
+                                1, [125, 246, 55], thickness=1)
+                i=i+1
+            cv2.circle(birds_img, warp_point(vehicle_front,M), 2, [0, 0, 255], 5)
+            cv2.imshow("birdseye", birds_img)
+            cv2.waitKey(1)
 
         if dataset.mode == 'images':
             cv2.imwrite(save_path, img_det)
@@ -641,8 +642,6 @@ def detect(cfg,opt,calibration_points):
 
         cv2.imshow("lanes", img_det)
         cv2.waitKey(1)
-        cv2.imshow("birdseye", birds_img)
-        cv2.waitKey(1)
 
     print('Results saved to %s' % Path(opt.save_dir))
     print('Done. (%.3fs)' % (time.time() - t0))
@@ -650,7 +649,7 @@ def detect(cfg,opt,calibration_points):
 
 
 if __name__ == '__main__':
-    test_path = 'inference/test_dlugi'
+    test_path = 'inference/vid2'
     calibration_points = []
     calibrate = 1
     if calibrate == 1:
